@@ -32,12 +32,13 @@ class SpectralPath(nn.Module):
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True,
-            bidirectional=False  # 改为单向LSTM以避免维度不匹配
+            bidirectional=True  # 双向LSTM
         )
 
         # 输出层：生成掩码
+        # 双向LSTM的输出维度是hidden_size * 2
         self.mask_output = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
+            nn.Linear(hidden_size * 2, hidden_size),
             nn.ReLU(),
             nn.Linear(hidden_size, input_size),
             nn.Sigmoid()  # 掩码范围[0,1]
@@ -58,6 +59,9 @@ class SpectralPath(nn.Module):
         
         # LSTM处理
         lstm_out, _ = self.lstm(x)  # (batch, time, hidden*2)
+        
+        # 确保LSTM输出维度正确
+        assert lstm_out.size(2) == self.hidden_size * 2, f"LSTM输出维度错误: {lstm_out.size(2)} 应该是 {self.hidden_size * 2}"
         
         # 生成掩码
         mask = self.mask_output(lstm_out)  # (batch, time, freq)
@@ -305,6 +309,11 @@ def create_deepfilternet_model(
     model = DeepFilterNet(n_fft, hidden_size, lstm_layers, filter_order)
     state = DeepFilterNetState()
     return model, state
+
+
+
+
+
 
 
 

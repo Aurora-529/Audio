@@ -15,10 +15,10 @@ from utils.audio_utils import save_audio
 
 # ==================== 配置参数 ====================
 # DEFAULT_MODEL_PATH = None  # None表示创建新模型
-DEFAULT_MODEL_PATH = "checkpoints/best1.pth"  # 使用训练好的模型
-DEFAULT_SAMPLE_RATE = 48000
+DEFAULT_MODEL_PATH = "checkpoints/best1.pth"  # 使用与inference.py相同的模型
+DEFAULT_SAMPLE_RATE = 48000  # 恢复为与inference.py相同的采样率
 DEFAULT_DEVICE = None  # None表示自动选择（cuda/cpu）
-DEFAULT_CHUNK_SIZE = 4800  # 音频块大小（样本数，100ms@48kHz）
+DEFAULT_CHUNK_SIZE = 4800  # 恢复为合适的块大小（100ms@48kHz）
 DEFAULT_SAVE_OUTPUT = False  # 是否保存处理后的音频
 DEFAULT_OUTPUT_PATH = None  # 保存路径，None表示自动生成
 # ==================================================
@@ -54,7 +54,12 @@ class RealtimeDenoiser:
         self.model = create_deepfilternet_wrapper(
             model_path=model_path,
             sample_rate=sample_rate,
-            device=device
+            device=device,
+            enable_agc=True,
+            agc_target_level=-24.0,  # 使用与inference.py相同的目标电平
+            agc_attack_time=0.05,    # 使用与inference.py相同的攻击时间
+            agc_release_time=0.2,    # 使用与inference.py相同的释放时间
+            noise_gate_threshold=-50.0  # 使用与inference.py相同的噪声门限
         )
         
         self.sample_rate = sample_rate
@@ -86,8 +91,12 @@ class RealtimeDenoiser:
         Returns:
             降噪后的音频块
         """
-        # 使用模型进行降噪处理 - 使用模型内置的AGC处理，不再额外添加增益
+        # 使用模型进行降噪处理
         clean_audio = self.model.denoise(audio_chunk)
+        
+        # 增加增益，确保音量足够大
+        gain_factor = 2.0
+        clean_audio *= gain_factor
         
         # 确保音频在有效范围内
         clean_audio = np.clip(clean_audio, -1.0, 1.0)
@@ -319,4 +328,10 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+
+
+
+
 

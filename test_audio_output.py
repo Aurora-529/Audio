@@ -1,72 +1,66 @@
-#!/usr/bin/env python3
-"""
-测试音频输出功能的简单脚本
-用于验证PyAudio输出设备是否正常工作
-"""
 import numpy as np
 import pyaudio
-import time
+import soundfile as sf
+from models.deepfilternet_wrapper import create_deepfilternet_wrapper
 
-# 配置参数
-SAMPLE_RATE = 48000
-CHUNK_SIZE = 4800  # 100ms
-DURATION = 5  # 测试时长（秒）
-FREQUENCY = 440  # 测试频率（Hz，A4音）
+def test_audio_output():
+    """测试音频输出功能"""
+    # 创建DeepFilterNetWrapper实例
+    print("创建DeepFilterNetWrapper实例...")
+    wrapper = create_deepfilternet_wrapper(
+        model_path='checkpoints/best.pth',
+        sample_rate=48000,
+        device='cuda' if pyaudio.PyAudio().get_default_output_device_info()['hostApi'] == 0 else 'cpu',
+        enable_agc=True,
+        agc_target_level=-10.0,  # 提高目标电平
+        noise_gate_threshold=-40.0  # 降低噪声门限
+    )
+    
+    # 生成测试音频（正弦波）
+    print("生成测试音频...")
+    sample_rate = 48000
+    duration = 5.0  # 5秒
+    frequency = 440.0  # A4音
+    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+    test_audio = 0.1 * np.sin(2 * np.pi * frequency * t)
+    
+    # 添加一些噪声
+    noise = 0.05 * np.random.randn(len(test_audio))
+    noisy_audio = test_audio + noise
+    
+    # 使用模型处理音频
+    print("处理音频...")
+    enhanced_audio = wrapper.denoise(noisy_audio, sample_rate=sample_rate)
+    
+    # 保存原始和处理后的音频
+    print("保存音频文件...")
+    sf.write("test_original.wav", noisy_audio, sample_rate)
+    sf.write("test_enhanced.wav", enhanced_audio, sample_rate)
+    
+    # 直接播放处理后的音频（绕过realtime.py的复杂逻辑）
+    print("播放处理后的音频...")
+    pa = pyaudio.PyAudio()
+    
+    # 打开音频流
+    stream = pa.open(
+        format=pyaudio.paFloat32,
+        channels=1,
+        rate=sample_rate,
+        output=True,
+        frames_per_buffer=4800
+    )
+    
+    # 播放音频
+    stream.write(enhanced_audio.astype(np.float32).tobytes())
+    
+    # 关闭流和PyAudio
+    stream.stop_stream()
+    stream.close()
+    pa.terminate()
+    
+    print("测试完成！请检查生成的wav文件并确认是否听到了音频输出。")
+    print(f"原始音频峰值: {np.max(np.abs(noisy_audio))}")
+    print(f"增强音频峰值: {np.max(np.abs(enhanced_audio))}")
 
-# 初始化PyAudio
-p = pyaudio.PyAudio()
-
-# 查看所有输出设备
-print("可用的输出设备:")
-for i in range(p.get_device_count()):
-    device_info = p.get_device_info_by_index(i)
-    if device_info['maxOutputChannels'] > 0:
-        print(f"设备 {i}: {device_info['name']} (通道数: {device_info['maxOutputChannels']})")
-
-# 获取默认输出设备
-default_output = p.get_default_output_device_info()
-print(f"\n默认输出设备: {default_output['index']} - {default_output['name']}")
-
-# 创建测试音频（440Hz正弦波）
-print(f"\n生成 {FREQUENCY}Hz 测试音频，持续 {DURATION} 秒...")
-t = np.linspace(0, DURATION, int(SAMPLE_RATE * DURATION), endpoint=False)
-sine_wave = 0.5 * np.sin(2 * np.pi * FREQUENCY * t)
-
-# 打开输出流
-print("\n打开音频输出流...")
-output_stream = p.open(
-    format=pyaudio.paFloat32,
-    channels=1,
-    rate=SAMPLE_RATE,
-    output=True,
-    output_device_index=default_output['index'],
-    frames_per_buffer=CHUNK_SIZE
-)
-
-# 播放测试音频
-print("开始播放测试音频...")
-try:
-    # 分块播放
-    for i in range(0, len(sine_wave), CHUNK_SIZE):
-        chunk = sine_wave[i:i+CHUNK_SIZE]
-        # 确保块大小正确
-        if len(chunk) < CHUNK_SIZE:
-            chunk = np.pad(chunk, (0, CHUNK_SIZE - len(chunk)))
-        
-        # 播放
-        output_stream.write(chunk.astype(np.float32).tobytes())
-        print(f"播放进度: {i/len(sine_wave)*100:.1f}%")
-        time.sleep(0.01)  # 避免太快
-        
-except KeyboardInterrupt:
-    print("播放被中断")
-
-# 关闭流
-print("\n关闭音频流...")
-output_stream.stop_stream()
-output_stream.close()
-p.terminate()
-
-print("测试完成！")
-print("如果您能听到440Hz的连续音调，说明音频输出设备工作正常。")
-print("如果没有听到声音，请检查设备选择或音量设置。")
+if __name__ == "__main__":
+    test_audio_output()
